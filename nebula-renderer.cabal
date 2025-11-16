@@ -56,7 +56,7 @@ common warnings
 
 executable nebula-renderer
 
-    ghc-options: -threaded
+    ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-N
 
     -- .hs or .lhs file containing the Main module.
     main-is: Main.hs
@@ -68,7 +68,7 @@ executable nebula-renderer
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends: base ^>=4.19.2.0, bytestring, gloss, pure-noise, array, gloss-raster
+    build-depends: base ^>=4.18.3.0, bytestring, gloss, pure-noise, array, time
 
     -- Directories containing source files.
     hs-source-dirs: app

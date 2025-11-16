@@ -23,6 +23,7 @@ interpBetween it a b v = a + (b-a) * n
 
 interpBetween3 :: InterpolationType -> Vec3f -> Vec3f -> Float -> Vec3f
 interpBetween3 it (x,y,z) (x',y',z') v = (interpBetween it x x' v, interpBetween it y y' v, interpBetween it z z' v)
+
 sampleColorRamp :: ColorRamp -> Float -> Vec3f
 sampleColorRamp (it, stops) x =
     let x' =  clamp 0 1 x
@@ -33,30 +34,92 @@ sampleColorRamp (it, stops) x =
         go [] = (0,0,0)
     in go stops
 
+multiTransfer :: [(TransferFunc, Float)] -> TransferData
+multiTransfer [] = ((0,0,0),(0,0,0),0)
+multiTransfer ((tf,d):xs) =
+    ( add3 color1 color2
+    , add3 emission1 emission2
+    , opacity1 + opacity2
+    )
+    where
+        (color1, emission1, opacity1) = tf d
+        (color2, emission2, opacity2) = multiTransfer xs
+
+tfFromCR :: ColorRamp -> TransferFunc
+tfFromCR cr v =
+    ( sampleColorRamp stdRedDustCR v
+    , sampleColorRamp cr v
+    , 5*interp EaseOutCubic v
+    )
+
 --------------------------------------------
 -------- Example transfer functions --------
 --------------------------------------------
 
+stdRedDustCR :: ColorRamp
+stdRedDustCR = (SmoothStep,
+    [ (0.0, (0.0, 0.0, 0.0))
+    , (1.0, (0.75, 0.6, 0.6))   -- faint reddish dust
+    ])
+
+stdDustCR :: ColorRamp
+stdDustCR = (SmoothStep,
+    [ (0.0, (0.00, 0.00, 0.00))
+    , (1.0, (0.75, 0.75, 0.75))   -- faint reddish dust
+    ])
+
+---- Element based ----
+haCR, o3CR, s2CR :: ColorRamp
+haCR = (SmoothStep,
+    [ (0.0, (0.4, 0.05, 0.05))
+    , (0.5, (1.0,  0.2,  0.1))
+    , (1.0, (1.0,  0.6,  0.3))
+    ])
+o3CR = (SmoothStep,
+    [ (0.0, (0.05, 0.10, 0.20))
+    , (0.5, (0.10, 0.40, 0.90))
+    , (1.0, (0.80, 1.80, 2.00))
+    ])
+s2CR = (SmoothStep,
+    [ (0.0, (0.20, 0.05, 0.20))
+    , (1.0, (0.60, 0.25, 0.60))
+    ])
+
+haTF, o3TF, s2TF :: TransferFunc
+haTF v = 
+    ( sampleColorRamp stdDustCR v
+    , scale3 0.5 $ sampleColorRamp haCR v
+    , 4 * interp EaseOutCubic v
+    )
+o3TF v = 
+    ( sampleColorRamp stdDustCR v
+    , scale3 0.5 $ sampleColorRamp o3CR v
+    , 6 * interp EaseOutCubic v
+    )
+s2TF v = 
+    ( sampleColorRamp s2CR v
+    , (0,0,0)
+    , 3 * interp EaseOutCubic v
+    )
+
 ---- Orion Nebula Style ---- This is shit
 orionEmissionCR :: ColorRamp
 orionEmissionCR = (SmoothStep,
-    [ (0.00, (0.05, 0.02, 0.20))   -- very deep space purple
-    , (0.25, (0.10, 0.05, 0.30))   -- dark violet
-    , (0.50, (0.4, 0.12, 0.6))    -- vibrant purple
-    , (0.75, (1.5, 0.6, 1.35))      -- bright pink highlights
-    , (1.00, (2.0, 1.6, 2.0))      -- pale glowing lavender
+    [ (0.00, (0.05, 0.02, 0.20)) -- red
+    , (0.07, (0.80, 0.20, 0.00)) -- red
+    , (0.20, (1.00, 1.00, 1.00)) -- white
+    , (0.39, (0.40, 0.40, 1.00)) -- blue
+    , (0.40, (0.10, 0.05, 0.30)) -- purple
+    , (0.50, (0.40, 0.12, 0.60)) -- purple
+    , (0.75, (1.50, 0.60, 1.35)) -- purple
+    , (1.00, (2.00, 1.60, 2.00)) -- purple
     ])
 
-orionDustCR :: ColorRamp
-orionDustCR = (SmoothStep,
-    [ (0.0, (0.0, 0.0, 0.0))
-    , (1.0, (0.2, 0.1, 0.1))   -- faint reddish dust
-    ])
 orionTF :: TransferFunc
 orionTF x =
-    ( sampleColorRamp orionDustCR v
-    , sampleColorRamp orionEmissionCR v
-    , interp EaseOutCubic v
+    ( sampleColorRamp stdRedDustCR v
+    , scale3 0.75 $ sampleColorRamp orionEmissionCR v
+    , 4 * interp EaseOutCubic v
     )
     where v = x
 
@@ -70,10 +133,10 @@ flameCR = (SmoothStep,
     ])
 
 flameTF :: TransferFunc
-flameTF v = (
-        (0,0,0),
-        sampleColorRamp flameCR v,
-        interp SmoothStep v
+flameTF v =
+    ( (0,0,0)
+    , sampleColorRamp flameCR v
+    , interp SmoothStep v
     )
     where glow = interp EaseInCubic v
 
@@ -90,3 +153,14 @@ linearTransfer v = ((v,v,v), (v,v,v), v)
 
 unitTransfer :: TransferFunc
 unitTransfer _ = ((1,1,1), (1,1,1), 1.0)
+
+noGlowTransfer :: TransferFunc
+noGlowTransfer v =
+    ( sampleColorRamp stdDustCR v
+    , (0,0,0)
+    , 5*interp EaseOutCubic v
+    )
+
+test1, test2 :: TransferFunc
+test1 v =((0,v,0), (0,v,0), v)
+test2 v =((0,0,v), (0,0,v), v)

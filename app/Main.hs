@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -fprof-auto #-}
+{-# LANGUAGE BangPatterns #-}
+
 module Main where
 
 import Types
@@ -15,98 +18,129 @@ import Data.Array.IO
 import Control.Concurrent
 import Control.Monad (forM_)
 import Data.Word (Word8, Word64)
+import Foreign (pokeArray)
+import GHC.IO (unsafePerformIO)
+import System.Exit (exitSuccess)
+import Debug.Trace (trace)
+import Data.Traversable (forM)
+import GHC.Base (when)
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
 
 
 -- Parameters -- 
-exposure = 1.0
+exposure = 1
 
 selectedNoise :: NoiseGenerator
-selectedNoise = (applyFallOff (Distance SmoothStep 1.5 4.5) . warp3) noise
+selectedNoise = toNoiseGenerator noise
     where noise = Noise.fractal3 Noise.defaultFractalConfig{Noise.octaves = 5} Noise.perlin3
 
+selectedFalloff :: FallOff
+selectedFalloff = Cube SmoothStep 0.6 2
+
 selectedVolume :: Volume
-selectedVolume = Cloud selectedNoise 10
+-- selectedVolume = Cloud selectedFalloff selectedNoise 10
+selectedVolume = CompositeCloud selectedFalloff selectedNoise 9 3
 -- selectedVolume = Sphere
 
-selectedTransfer :: TransferFunc
--- selectedTransfer = orionTF
-selectedTransfer = linearTransfer
+selectedTransfers :: [TransferFunc]
+selectedTransfers = [haTF, o3TF]
+-- selectedTransfers = [tfFromCR o3CR]
+-- selectedTransfers = [noGlowTransfer]
+-- selectedTransfers = [linearTransfer]
 
 selectedLights :: [LightSource]
 -- selectedLights = [(Directional, (2.0, 0.5, 0.5), (0,0,50))]
 -- selectedLights = [(Directional, (0.0, 0.0, -1.0), (0,0,25))]
-selectedLights = [(Point, (0.0, 0.0, 0.0), (10,20,20))]
+-- selectedLights = [ (Point, (0.0, 0.0, 0.0), (25,25,25)) ]
+selectedLights = [ (Point, (0.0, 0.0, 0.0), (10,25,75))
+                 , (Point, (0.5, 0.5, 0.5), (75,25,25))
+                 , (Point, (-0.5, -0.5, -0.5), (75,35,35))
+                 ]
 
 -- Constants --
 width, height, fps, numWorkers, delay :: Int
 width  = 512
 height = 512
 fps = 10
-numWorkers = 1
-delay = 15000
+numWorkers = 8
+delay = 5000
 
 
 -- User Interface --
 type Lock = MVar ()
 main :: IO ()
 main = do
-    let numPixels = width * height
+    let numBytes = width * height * 4
 
-    lock   <- newMVar ()
-    buffer <- newArray (0,numPixels) (0,0,0) :: IO PixelBuffer
+    -- lock   <- newMVar ()
+    buffer <- mallocForeignPtrArray numBytes :: IO PixelBuffer
 
-    forM_ [0..(numWorkers-1)] $ \i -> forkIO (worker i buffer lock)
+    -- Initialize to black
+    withForeignPtr buffer $ \ptr ->
+        forM_ [0..width*height*4-1] $ \i ->
+            pokeElemOff ptr i (0 :: Word8)
+
+    bgp <- loadBMP "./background.bmp"
+    let sx = fromIntegral width / 512.0
+        sy = fromIntegral width / 512.0
+        bg = Graphics.Gloss.Interface.IO.Game.scale sx sy bgp
+        pic = bitmapOfForeignPtr width height
+                    (BitmapFormat TopToBottom PxRGBA)
+                    buffer
+                    False
+
+    forM_ [0..(numWorkers-1)] $ \i -> forkIO (worker i buffer)
     playIO (InWindow "Nebula Renderer" (width, height) (100, 100))
         black
         fps
-        (lock, buffer)
+        (buffer, pic, bg)
         drawBuffer
         handleEvent
         update
 
+type World = (PixelBuffer, Picture, Picture)
+handleEvent :: Event -> World -> IO World
+handleEvent (EventKey (SpecialKey KeyEsc) _ _ _) _ = unsafePerformIO exitSuccess -- For profiling
+handleEvent _ x = return x
 
-handleEvent :: Event -> (Lock, PixelBuffer) -> IO (Lock, PixelBuffer)
-handleEvent _ = return
-
-update :: Float -> (Lock, PixelBuffer) -> IO (Lock, PixelBuffer)
+update :: Float -> World -> IO World
 update _ = return
 
 -- Rendering --
-type PixelBuffer = IOArray Int Color3
+type PixelBuffer = ForeignPtr Word8
 
-drawBuffer :: (Lock, PixelBuffer) -> IO Picture
-drawBuffer (lock, buffer) = do
-    -- allocate a temporary ForeignPtr Word64 (RGBA per pixel)
-    let numPixels = width * height
-    fp <- mallocForeignPtrArray (numPixels*4) :: IO (ForeignPtr Word8)
+drawBuffer :: World -> IO Picture
+drawBuffer (buffer, pic, bg) = return $ pictures [ bg, pic ]
 
-    -- Context with lock and foreign ptr
-    withMVar lock $ \_ -> do
-        withForeignPtr fp $ \ptr -> do
-            forM_ [0..numPixels-1] $ \i -> do
-                (r,g,b) <- readArray buffer i
-                pokeElemOff ptr (i*4)   r
-                pokeElemOff ptr (i*4+1) g
-                pokeElemOff ptr (i*4+2) b
-                pokeElemOff ptr (i*4+3) 255
-
-    return $ bitmapOfForeignPtr width height (BitmapFormat TopToBottom PxRGBA) fp False
-
-
-
-worker :: Int -> PixelBuffer -> Lock -> IO ()
-worker i buffer lock = do
-    forM_ [start..end] $ \y -> do
-        forM_ [0 .. width-1] $ \x -> do
-            let i = y*width + x
-            c <- renderPixel (x,y)
-            withMVar lock $ \_ -> do -- Add pixel buffer with the lock
-                writeArray buffer i c
-        threadDelay delay -- Allow gloss to render and catch up? i don't really like this tbh but its the only way i know
-    where
-        n = height `div` numWorkers
+worker :: Int -> PixelBuffer -> IO ()
+worker i buffer = do
+    let n = height `div` numWorkers
         start = i * n
         end   = (i+1) * n - 1
+
+    putStrLn $ "Worker " ++ show (i+1) ++ ": Working from " ++ show start ++ " to " ++ show end
+    startTime <- getCurrentTime
+
+    forM_ [start..end] $ \y -> do
+        -- Render row
+        rowPixels <- forM [0..width-1] $ \x ->
+            renderPixel (x, y)
+
+        -- Write row to buffer
+        withForeignPtr buffer $ \ptr -> do
+            forM_ (zip [0..] rowPixels) $ \(x, (!r,!g,!b,!a)) -> do
+                let pixelIndex = (y * width + x) * 4
+                pokeElemOff ptr (pixelIndex + 0) r
+                pokeElemOff ptr (pixelIndex + 1) g
+                pokeElemOff ptr (pixelIndex + 2) b
+                pokeElemOff ptr (pixelIndex + 3) a
+
+        when (y `mod` 64 == 0 && y /= start) $
+            putStrLn $ "Worker " ++ show (i+1) ++ ": Finished row " ++ show y
+    endTime <- getCurrentTime
+    let elapsed = diffUTCTime endTime startTime
+    putStrLn $ "Worker " ++ show (i+1) ++ ": Completed in " ++ show elapsed
+
 
 -- render :: PixelBuffer -> IO ()
 -- render buffer = do
@@ -115,8 +149,9 @@ worker i buffer lock = do
 --             writeArray buffer (x,y) $ renderPixel (x,y)
 --         threadDelay 1000 -- Allow gloss to render and catch up? i don't really like this tbh
 
-renderPixel :: Vec2i -> IO Color3
-renderPixel (x,y) = return . toColor . scale3 exposure $ orthoRayVolume selectedVolume selectedTransfer selectedLights (fx, fy)
+renderPixel :: Vec2i -> IO Color4
+renderPixel (x,y) = do
+    return . toColor4 . expose exposure $ orthoRayVolume selectedVolume selectedTransfers selectedLights (fx, fy)
     where
         fl = fromIntegral -- I hate how long this function is
         -- Screen space to world space

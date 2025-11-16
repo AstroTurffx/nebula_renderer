@@ -5,7 +5,9 @@ import Data.Bits
 
 -- Placing renderer types here to avoid circular imports
 ---- Volume ----
-data Volume = Sphere | Cloud NoiseGenerator Int
+data Volume = Sphere
+            | Cloud FallOff NoiseGenerator Int -- falloff, noise, sed
+            | CompositeCloud FallOff NoiseGenerator Int Int -- fallout noise, seed, num elements
 data LightType = Point | Directional
 type LightSource = (LightType, Vec3f, Vec3f)
 
@@ -20,7 +22,7 @@ data FallOff = Distance InterpolationType Float Float
 data InterpolationType = Linear | SmoothStep | EaseInCubic | EaseOutCubic
 -- (color, emission, opacity)
 type TransferData = (Vec3f, Vec3f, Float)
-type CompositeTransferFunc = Float -> (TransferData, TransferData, TransferData)
+-- type CompositeTransferFunc = Float -> (TransferData, TransferData, TransferData)
 type TransferFunc = Float -> TransferData
 type ColorRamp = (InterpolationType, [(Float, Vec3f)])
 
@@ -31,6 +33,7 @@ type Vec2f = (Float, Float)
 type Vec3f = (Float, Float, Float)
 type Vec4f = (Float, Float, Float, Float)
 type Color3 = (Word8, Word8, Word8)
+type Color4 = (Word8, Word8, Word8, Word8)
 
 clamp :: Float -> Float -> Float -> Float
 clamp a b = max a . min b
@@ -58,9 +61,16 @@ normalise3 (x,y,z) = (x/m,y/m,z/m)
     where m = magnitude3 (x,y,z)
 
 -- From Vec3f [0,1] to Color3 [0,255]
-toColor :: Vec3f -> Color3
-toColor (x,y,z) = (f x, f y, f z)
+toColor3 :: Vec3f -> Color3
+toColor3 (x,y,z) = (f x, f y, f z)
     where f = fromIntegral . round . (* 255) . clamp 0 1
+
+toColor4 :: Vec4f -> Color4
+toColor4 (x,y,z,a) = (f x, f y, f z, f a)
+    where f = fromIntegral . round . (* 255) . clamp 0 1
+
+expose :: Float -> Vec4f -> Vec4f
+expose x (r,g,b,a) = (r*x,g*x,b*x,a)
 
 packColor :: Color3 -> Word64
 packColor (r, g, b) = (fromIntegral r `shiftL` 24)
