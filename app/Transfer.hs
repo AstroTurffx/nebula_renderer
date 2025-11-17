@@ -65,11 +65,11 @@ stdRedDustCR = (SmoothStep,
 stdDustCR :: ColorRamp
 stdDustCR = (SmoothStep,
     [ (0.0, (0.00, 0.00, 0.00))
-    , (1.0, (0.75, 0.75, 0.75))   -- faint reddish dust
+    , (1.0, (0.75, 0.75, 0.75))
     ])
 
 ---- Element based ----
-haCR, o3CR, s2CR :: ColorRamp
+haCR, o3CR, s2CR, n2CR :: ColorRamp
 haCR = (SmoothStep,
     [ (0.0, (0.4, 0.05, 0.05))
     , (0.5, (1.0,  0.2,  0.1))
@@ -81,26 +81,38 @@ o3CR = (SmoothStep,
     , (1.0, (0.80, 1.80, 2.00))
     ])
 s2CR = (SmoothStep,
-    [ (0.0, (0.20, 0.05, 0.20))
-    , (1.0, (0.60, 0.25, 0.60))
+    [ (0.0, (0.2, 0.05, 0.2))
+    , (0.5, (0.8, 0.2,  0.8))
+    , (1.0, (1.0, 0.6,  1.0))
+    ])
+n2CR = (SmoothStep,
+    [ (0.00, (0.05, 0.02, 0.00))
+    , (0.50, (0.60, 0.45, 0.10))
+    , (1.00, (2.00, 1.80, 0.60))
     ])
 
-haTF, o3TF, s2TF :: TransferFunc
+haTF, o3TF, s2TF, n2TF :: TransferFunc
 haTF v = 
     ( sampleColorRamp stdDustCR v
-    , scale3 0.5 $ sampleColorRamp haCR v
-    , 4 * interp EaseOutCubic v
+    , scale3 0.4 $ sampleColorRamp haCR v
+    , 3 * interp EaseOutCubic v
     )
 o3TF v = 
     ( sampleColorRamp stdDustCR v
-    , scale3 0.5 $ sampleColorRamp o3CR v
-    , 6 * interp EaseOutCubic v
-    )
-s2TF v = 
-    ( sampleColorRamp s2CR v
-    , (0,0,0)
+    , scale3 1 $ sampleColorRamp o3CR v
     , 3 * interp EaseOutCubic v
     )
+s2TF v = 
+    ( sampleColorRamp stdDustCR v
+    , scale3 0.75 $ sampleColorRamp s2CR v
+    , 5 * interp EaseOutCubic v
+    )
+n2TF v = 
+    ( sampleColorRamp stdDustCR v
+    , scale3 1.3 $ sampleColorRamp n2CR v
+    , 3 * interp EaseOutCubic v
+    )
+
 
 ---- Orion Nebula Style ---- This is shit
 orionEmissionCR :: ColorRamp

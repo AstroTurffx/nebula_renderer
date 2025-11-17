@@ -39,31 +39,29 @@ selectedFalloff = Cube SmoothStep 0.6 2
 
 selectedVolume :: Volume
 -- selectedVolume = Cloud selectedFalloff selectedNoise 10
-selectedVolume = CompositeCloud selectedFalloff selectedNoise 9 3
+selectedVolume = CompositeCloud selectedFalloff selectedNoise 69 2
 -- selectedVolume = Sphere
 
 selectedTransfers :: [TransferFunc]
-selectedTransfers = [haTF, o3TF]
--- selectedTransfers = [tfFromCR o3CR]
+selectedTransfers = [o3TF, haTF]
 -- selectedTransfers = [noGlowTransfer]
 -- selectedTransfers = [linearTransfer]
 
 selectedLights :: [LightSource]
 -- selectedLights = [(Directional, (2.0, 0.5, 0.5), (0,0,50))]
 -- selectedLights = [(Directional, (0.0, 0.0, -1.0), (0,0,25))]
--- selectedLights = [ (Point, (0.0, 0.0, 0.0), (25,25,25)) ]
-selectedLights = [ (Point, (0.0, 0.0, 0.0), (10,25,75))
-                 , (Point, (0.5, 0.5, 0.5), (75,25,25))
-                 , (Point, (-0.5, -0.5, -0.5), (75,35,35))
-                 ]
+selectedLights = [ (Point, (0.0, 0.0, 0.0), (50,50,50)), (Point, (0.5, 0.5, 0.0), (50,50,75)), (Directional, (0.5, 2.0, 0.5), (50,0,50)) ]
+-- selectedLights = [ (Point, (0.0, 0.0, 0.0), (10,25,75))
+--                  , (Point, (0.5, 0.5, 0.5), (75,25,25))
+--                  , (Point, (-0.5, -0.5, -0.5), (75,35,35))
+--                  ]
 
 -- Constants --
-width, height, fps, numWorkers, delay :: Int
+width, height, fps, numWorkers :: Int
 width  = 512
 height = 512
 fps = 10
 numWorkers = 8
-delay = 5000
 
 
 -- User Interface --
@@ -135,19 +133,11 @@ worker i buffer = do
                 pokeElemOff ptr (pixelIndex + 2) b
                 pokeElemOff ptr (pixelIndex + 3) a
 
-        when (y `mod` 64 == 0 && y /= start) $
+        when (y `mod` 16 == 0 && y /= start) $
             putStrLn $ "Worker " ++ show (i+1) ++ ": Finished row " ++ show y
     endTime <- getCurrentTime
     let elapsed = diffUTCTime endTime startTime
     putStrLn $ "Worker " ++ show (i+1) ++ ": Completed in " ++ show elapsed
-
-
--- render :: PixelBuffer -> IO ()
--- render buffer = do
---     forM_ [0 .. height-1] $ \y -> do
---         forM_ [0 .. width-1] $ \x -> do
---             writeArray buffer (x,y) $ renderPixel (x,y)
---         threadDelay 1000 -- Allow gloss to render and catch up? i don't really like this tbh
 
 renderPixel :: Vec2i -> IO Color4
 renderPixel (x,y) = do

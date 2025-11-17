@@ -9,17 +9,17 @@ import Debug.Trace (trace)
 
 -- dz = Ray step distance, total distance / num steps
 dz, scale, cutoff, reflectivity :: Float
-dz = 2.0 / 16.0
+dz = 2.0 / 64.0
 scale = 1.3
-cutoff = 0.52
-reflectivity = 0.6
+cutoff = 0.49
+reflectivity = 0.1
 
 warpFreq, warpStrength :: Float
-warpFreq = 0.07
-warpStrength = 25
+warpFreq = 0.06
+warpStrength = 20
 
 lightSampleSteps :: Int
-lightSampleSteps = 4
+lightSampleSteps = 16
 
 sampleVolume :: Volume -> Vec3f -> [Float]
 sampleVolume Sphere (x,y,z) = [exp (- ((r * 3) ^ 2))]
@@ -40,16 +40,16 @@ sampleVolume (CompositeCloud falloff generator seed numElements) pos = foldr1 (+
 orthoRayVolume :: Volume -> [TransferFunc] -> [LightSource] -> Vec2f -> Vec4f
 orthoRayVolume volume tfs lightSources (x, y) = go (-1) (0, 0, 0, 0)
     where
-        -- transmisisonMult = 2
+        transmisisonMult = 2
         go z (rAcc, gAcc, bAcc, tAcc)
             | z > 1 || tAcc >= 0.99 = (rAcc, gAcc, bAcc, tAcc)
             | otherwise =
                 let ds = sampleVolume volume (x, y, z)
                     ((r,g,b), (er,eg,eb), opacity) = multiTransfer $ zip tfs ds
-                    alpha = opacity * dz
+                    alpha = opacity * dz 
 
                     -- How much of this color will add to the accumulated color
-                    transmission = (1 - tAcc) * alpha
+                    transmission = (1 - tAcc) * alpha * transmisisonMult
                     viewRay = (0,0,1) -- orthgraphic view therefore constant ray
                     (sr, sg, sb) = foldr1 add3 [ incomingLightAt l volume tfs (x,y,z) viewRay | l <- lightSources ]
 
